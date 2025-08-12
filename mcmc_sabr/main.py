@@ -21,7 +21,7 @@ def main():
     parser.add_argument('--algo', type=str, default=config.DEFAULT_ALGO, choices=ALGO_MAPPING.keys())
     parser.add_argument('--n_iterations', type=int, default=config.N_ITERATIONS)
     parser.add_argument('--chains', type=int, default=config.N_CHAINS)
-    parser.add_argument('--init', type=str, default=config.INITIALIZATION_METHOD, choices=['calibrate', 'manual'])
+    parser.add_argument('--init', type=str, default=config.INITIALIZATION_METHOD, choices=['calibrate', 'manual1', 'manual2'])
     parser.add_argument('--no_diagnostics', dest='diagnostics', action='store_false')
     parser.add_argument('--no_adapt_cov', dest='adapt_cov', action='store_false')
     parser.add_argument('--maturity', type=int, default=config.MATURITY_INDEX, choices=[i for i in range(10)])

@@ -15,13 +15,38 @@ def load_market_data():
     Returns:
         tuple: (maturity, forward, market_vols, strikes)
     """
-    strikes, maturity_data = prepare_calibration_inputs(config.DATA_FILE_PATH, config.INITIAL_DATE)
+    strikes, maturity_data = prepare_calibration_inputs(config.DATA_FILES_PATH[0], config.INITIAL_DATES[0])
     
     current_maturity = maturity_data[config.MATURITY_INDEX, 0]
     current_forward = maturity_data[config.MATURITY_INDEX, 1]
     current_market_vols = maturity_data[config.MATURITY_INDEX, 2:]
     
     return current_maturity, current_forward, current_market_vols, strikes
+
+
+def load_market_data_multi_valuation_dates():
+    """
+    Load and prepare market volatility data for calibration.
+    
+    Returns:
+        tuple: (maturity, forward, market_vols, strikes)
+    """
+
+    strikes_all_valuation_dates, forward_all_valuation_dates, market_vols_all_valuation_dates = [], [], []
+    maturities = []
+    for i in range(len(config.DATA_FILES_PATH)):
+        strikes, maturity_data = prepare_calibration_inputs(config.DATA_FILES_PATH[i], config.INITIAL_DATES[i])
+        current_maturity = maturity_data[config.MATURITY_INDEX, 0]
+        current_forward = maturity_data[config.MATURITY_INDEX, 1]
+        current_market_vols = maturity_data[config.MATURITY_INDEX, 2:]
+        
+        strikes_all_valuation_dates.append(strikes)
+        forward_all_valuation_dates.append(current_forward)
+        market_vols_all_valuation_dates.append(current_market_vols)
+
+        maturities.append(current_maturity)
+    
+    return maturities[0], forward_all_valuation_dates, market_vols_all_valuation_dates, strikes_all_valuation_dates
 
 def get_initial_params_from_calibration(market_data, n_params=4, n_chains=4):
     """
@@ -49,6 +74,56 @@ def get_initial_params_from_calibration(market_data, n_params=4, n_chains=4):
             initial_params[i] = np.array([theta_without_beta[0], theta_without_beta[1], theta_without_beta[2]]) * perturbation
 
     return initial_params
+
+def calculate_prior_mean(calibrated_params, weights):
+    """
+    Calcule le prior mean avec pondération temporelle décroissante
+    """
+    prior_mean = np.average(calibrated_params, weights=weights, axis=0)
+    return prior_mean
+
+def calculate_weights():
+    """
+    Calcule les poids avec normalisation par ESS
+    """
+    valuation_dates = config.INITIAL_DATES
+    current_date = valuation_dates[0]  # Date la plus récente
+    raw_weights = []
+    
+    for date in valuation_dates:
+        days_diff = (current_date - date).days
+        weight = np.exp(-0.1 * days_diff)  # λ = 0.1
+        raw_weights.append(weight)
+    
+    raw_weights = np.array(raw_weights)
+
+    # ============================== normalisation normal ==============================
+    normalized_weights = raw_weights / raw_weights.sum()  # Normalisation
+    
+    return normalized_weights
+
+def calculate_weights_likelihood():
+    """
+    Calcule les poids avec normalisation par ESS
+    """
+    valuation_dates = config.INITIAL_DATES
+    current_date = valuation_dates[0]  # Date la plus récente
+    raw_weights = []
+    
+    for date in valuation_dates:
+        days_diff = (current_date - date).days
+        weight = np.exp(-0.1 * days_diff)  # λ = 0.1
+        raw_weights.append(weight)
+    
+    raw_weights = np.array(raw_weights)
+    
+    # ============================== normalisation ESS ==============================
+    ess = np.sum(raw_weights)**2 / np.sum(raw_weights**2)
+    weights = raw_weights * (ess / np.sum(raw_weights))
+
+    print("sum weight for likelihood is:", np.sum(weights))
+    
+    return weights
 
 def get_initial_params_from_calibration_all_maturities(market_data_all_maturities, n_params=4, n_chains=4):
     """

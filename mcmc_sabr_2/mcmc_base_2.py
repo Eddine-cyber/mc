@@ -156,7 +156,7 @@ class MCMCBase(ABC):
         print(f"--- Setting up {self.__class__.__name__} Sampler ---")
         self._initialize_sampler()
         self.market_data = load_market_data()
-        strikes, maturity_data = prepare_calibration_inputs(config.DATA_FILE_PATH, config.INITIAL_DATE)
+        strikes, maturity_data = prepare_calibration_inputs(config.DATA_FILES_PATH[0], config.INITIAL_DATES[0])
         maturities = maturity_data[1:, 0]
         FwdImp = maturity_data[1:, 1]
         market_vols = maturity_data[1:, 2:]
@@ -166,8 +166,11 @@ class MCMCBase(ABC):
         if self.init_method == 'calibrate':
             print("=== calibrating SABR to get initial params ===")
             self.initial_params = get_initial_params_from_calibration_all_maturities(self.market_data_all_maturities, self.n_params, self.n_chains)
-        else:
+        elif self.init_method == 'manual1':
             self.initial_params = config.MANUAL_INITIAL_PARAMS_4 if self.n_params == 4 else config.MANUAL_INITIAL_PARAMS_3
+            self.initial_params = self.initial_params[:self.n_chains]
+        elif self.init_method == 'manual2':
+            self.initial_params = config.MANUAL2_INITIAL_PARAMS_4 if self.n_params == 4 else config.MANUAL2_INITIAL_PARAMS_3
             self.initial_params = self.initial_params[:self.n_chains]
         print("Initial parameters:\n", self.initial_params)
 
@@ -178,7 +181,7 @@ class MCMCBase(ABC):
         # prior_cov = np.diag(std**2)
         mean = _transform_4_params(self.initial_params[0]) if self.n_params == 4 else _transform_3_params(self.initial_params[0])
         self.prior_means = np.tile(mean, (self.n_chains, 1))
-        prior_cov = np.diag(np.array([0.5, 0.5, 0.5])) if self.n_params == 3 else np.diag(np.array([0.5, 0.5, 0.5, 0.5]))
+        prior_cov = np.diag(np.array([0.5, 0.5, 0.5, 0.5])) if self.n_params == 4 else np.diag(np.array([0.5, 0.1, 0.9]))
         self.prior_covs = np.tile(prior_cov, (self.n_chains, 1, 1))
         self.prior_transformed_means = _inverse_transform_4_params(mean) if self.n_params == 4 else _inverse_transform_3_params(mean)
         print("prior means")
@@ -262,7 +265,11 @@ class MCMCBase(ABC):
             Results dictionary from run_sampler containing samples,
             acceptance rates, parameter ranges, and diagnostics.
         """
-        filename = f"mcmc_results_{self.__class__.__name__}_prior_{self.init_method}.html"
+        if self.__class__.__name__ == 'MCMCBetaFixed' :
+            filename = f"mcmc_results_{self.__class__.__name__}_{config.FIXED_BETA}_prior_{self.init_method}.html"
+        else :
+            filename = f"mcmc_results_{self.__class__.__name__}_prior_{self.init_method}.html"
+        save_results_to_html(filename, self, results)
         save_results_to_html(filename, self, results)
 
     def check_parameter_bounds(self, param_value):

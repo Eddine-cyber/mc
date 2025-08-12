@@ -98,6 +98,7 @@ def calibrate_sabr(maturity, strikes, forward, market_vols_for_maturity, use_veg
             market_vols_for_maturity, use_vega, beta, use_minimize
         )
     calibrated_params = results.x
+    print("erreur final de la fonction objectif :", results.fun)
     return calibrated_params
 
 def calibrate_sabr_with_beta(maturity, strikes, forward, market_vols, use_vega=True, use_minimize=True):
@@ -180,6 +181,7 @@ def calibrate_sabr_all_maturities_without_beta(strikes, market_vols, FwdImp, mat
 
     initial_guess = [0.2, -0.4, 1.0]
     result = sc.minimize(sabr_objective_function_all_maturities_without_beta, initial_guess, args=args, method='L-BFGS-B', bounds=bounds)
+    print("erreur final de la fonction objectif :", result.fun)
     return result.x
 
 def sabr_objective_function_all_maturities_without_beta(params, strikes, market_vols, forwards, maturities, beta):

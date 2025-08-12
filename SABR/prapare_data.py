@@ -3,35 +3,62 @@ import pandas as pd
 
 # ===================================== Fonctions de préparation des données =====================================
 
-def prepare_calibration_inputs(excel_file, first_date):
-    """
-    Prépare les données d'entrée pour la calibration à partir d'un fichier Excel
+# def prepare_calibration_inputs(excel_file, first_date):
+#     """
+#     Prépare les données d'entrée pour la calibration à partir d'un fichier Excel
     
-    Args:
-        excel_file: Chemin vers le fichier Excel contenant les données
-        valuation_date: Date d'évaluation
+#     Args:
+#         excel_file: Chemin vers le fichier Excel contenant les données
+#         valuation_date: Date d'évaluation
         
-    Returns:
-        Tuple (strike_percentages, mat_data)
-    """
-    df = pd.read_excel(excel_file, decimal=',') # 'Date exp', 'FwdImp', '95.0%', '96.0%' ... '109.0%', '110.0%'
-    strikes = df.iloc[0, 2:].values.astype(float)
+#     Returns:
+#         Tuple (strike_percentages, mat_data)
+#     """
+#     df = pd.read_excel(excel_file, decimal=',') # 'Date exp', 'FwdImp', '95.0%', '96.0%' ... '109.0%', '110.0%'
+#     strikes = df.iloc[0, 2:].values.astype(float)
+#     market_data_df = df.iloc[1:].copy()
+
+#     # mat_data : T, Fwd, puis toutes les colonnes de Vol
+
+#     # Convertir les dates d'expiration en maturités (années)
+#     market_data_df['T'] = (pd.to_datetime(df['Date exp']) - pd.to_datetime(first_date)).dt.days / 365.25
+    
+#     # Sélectionner les colonnes pertinentes
+#     vol_columns = df.columns[2:]
+#     cols_for_matrix = ['T', 'FwdImp'] + list(vol_columns)
+#     mat_data = market_data_df[cols_for_matrix].values.astype(float) # 'T', 'FwdImp', '95.0%', '96.0%' ... '109.0%', '110.0%'
+    
+#     # Convertir les volatilités de % en décimal
+#     mat_data[:, 2:] = mat_data[:, 2:] / 100.0
+
+#     return strikes, mat_data
+
+def prepare_calibration_inputs(excel_file, first_date):
+    df = pd.read_excel(excel_file, decimal=',', engine='openpyxl')
+    
+    # Trouver l'index de la colonne 'Date exp'
+    date_exp_idx = df.columns.get_loc('Date exp')
+    
+    # Les strikes sont sur la première ligne, après 'FwdImp'
+    strikes = df.iloc[0, date_exp_idx+1:].values.astype(float)
+    
+    # Données de marché = toutes les lignes après la ligne 0
     market_data_df = df.iloc[1:].copy()
-
-    # mat_data : T, Fwd, puis toutes les colonnes de Vol
-
-    # Convertir les dates d'expiration en maturités (années)
-    market_data_df['T'] = (pd.to_datetime(df['Date exp']) - pd.to_datetime(first_date)).dt.days / 365.25
     
-    # Sélectionner les colonnes pertinentes
-    vol_columns = df.columns[2:]
+    # Calcul des maturités en années
+    market_data_df['T'] = (
+        pd.to_datetime(df['Date exp']) - pd.to_datetime(first_date)
+    ).dt.days / 365.25
+    
+    # Colonnes à garder : T, FwdImp, et toutes les volas
+    vol_columns = df.columns[date_exp_idx+1:]
     cols_for_matrix = ['T', 'FwdImp'] + list(vol_columns)
-    mat_data = market_data_df[cols_for_matrix].values.astype(float) # 'T', 'FwdImp', '95.0%', '96.0%' ... '109.0%', '110.0%'
     
-    # Convertir les volatilités de % en décimal
-    mat_data[:, 2:] = mat_data[:, 2:] / 100.0
-
+    mat_data = market_data_df[cols_for_matrix].values.astype(float)
+    mat_data[:, 2:] = mat_data[:, 2:] / 100.0  # convertir en décimal
+    
     return strikes, mat_data
+
 
 def prepare_calibration_inputs_K_T(excel_file, first_date):
 

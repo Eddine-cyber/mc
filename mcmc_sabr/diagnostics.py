@@ -276,6 +276,7 @@ def create_density_plot(sampler, param_idx, chain_idx, param_samples, param_samp
     """
     Create posterior and prior density and likelihood plots.
     """
+
     # Calcul des statistiques du posterior
     q_min, q_max = np.percentile(param_samples, [5, 95])
     posterior_mean = np.mean(param_samples)
@@ -284,6 +285,7 @@ def create_density_plot(sampler, param_idx, chain_idx, param_samples, param_samp
     # Info du prior
     prior_mean_transformed = sampler.prior_transformed_means[param_idx]
     prior_std = np.sqrt(sampler.prior_covs[chain_idx, param_idx, param_idx])
+
     
     # Calcul des bornes intelligentes pour le prior (99.9% de la masse)
     prior_lower = sampler.inverse_transform_one_parameter(

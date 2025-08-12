@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 
 
 import mcmc_sabr.config as config
-from mcmc_sabr.utils import load_market_data, get_initial_params_from_calibration,  compute_prior_mean_std, compute_covariance_matrix_from_hessienne
+from mcmc_sabr.utils import calculate_weights_likelihood, calculate_weights, calculate_prior_mean, load_market_data_multi_valuation_dates, get_initial_params_from_calibration,  compute_prior_mean_std, compute_covariance_matrix_from_hessienne
 from mcmc_sabr.diagnostics import calculate_r_hat
 from mcmc_sabr.html_report import save_results_to_html
 from SABR.sabr import vol_sabr_hagan
@@ -99,6 +99,8 @@ class MCMCBase(ABC):
         self.mean_proposal = None
         self.new_samples_buffer = None
         self.maturity = None
+        self.weight = None
+        self.likelihood_weight = None
 
     @abstractmethod
     def _initialize_sampler(self):
@@ -154,23 +156,41 @@ class MCMCBase(ABC):
         """
         print(f"--- Setting up {self.__class__.__name__} Sampler ---")
         self._initialize_sampler()
-        self.market_data = load_market_data()
-        
-        maturity, f, market_vols, strikes = self.market_data
+
+        self.market_data_multi_valuation_dates = load_market_data_multi_valuation_dates()
+        maturity, forward_all_valuation_dates, market_vols_all_valuation_dates, strikes_all_valuation_dates = self.market_data_multi_valuation_dates
+        f, market_vols, strikes = forward_all_valuation_dates[0], market_vols_all_valuation_dates[0], strikes_all_valuation_dates[0]
+        self.market_data = maturity, f, market_vols, strikes
+
         self.maturity = maturity
+        self.weight = calculate_weights()
+        self.likelihood_weight = calculate_weights_likelihood()
+        print("weights:", self.weight)
+        print("weights for likelihood:", self.likelihood_weight)
         # Parameter initialization
         if self.init_method == 'calibrate':
             print("=== calibrating SABR to get initial params ===")
-            self.initial_params = get_initial_params_from_calibration(self.market_data, self.n_params, self.n_chains)
+            print("="*50)
+            calibrated_params = []
+            for i in range(len(strikes_all_valuation_dates)):
+                data_market = maturity, forward_all_valuation_dates[i], market_vols_all_valuation_dates[i], strikes_all_valuation_dates[i]
+                calibrated_params.append(get_initial_params_from_calibration(data_market, self.n_params, self.n_chains)) 
+                print(f"calibrated params for valuation date {config.INITIAL_DATES[i]} and maturity {maturity} are:")
+                print(calibrated_params[i])
+            print("="*50)
+            self.initial_params = calculate_prior_mean(calibrated_params, self.weight)
+            print(f"averaged calibrated param for maturity {maturity} is :")
+            print(self.initial_params)
+            
         elif self.init_method == 'manual1':
             self.initial_params = config.MANUAL_INITIAL_PARAMS_4 if self.n_params == 4 else config.MANUAL_INITIAL_PARAMS_3
             self.initial_params = self.initial_params[:self.n_chains]
         elif self.init_method == 'manual2':
             self.initial_params = config.MANUAL2_INITIAL_PARAMS_4 if self.n_params == 4 else config.MANUAL2_INITIAL_PARAMS_3
             self.initial_params = self.initial_params[:self.n_chains]
-
-        print(f"calibrated params for valuation date {config.INITIAL_DATES[0]} and maturity {maturity} are:")
         print("Initial parameters:\n", self.initial_params)
+
+
 
         # Prior initialization
         # prior_bounds = config.PRIOR_BOUNDS_4_PARAMS if self.n_params == 4 else config.PRIOR_BOUNDS_3_PARAMS
@@ -182,6 +202,7 @@ class MCMCBase(ABC):
         self.prior_means = np.tile(mean, (self.n_chains, 1))
         prior_cov = np.diag(np.array([0.5, 0.5, 0.5, 0.5])) if self.n_params == 4 else np.diag(np.array([0.5, 0.1, 0.9]))
         self.prior_covs = np.tile(prior_cov, (self.n_chains, 1, 1))
+
         self.prior_transformed_means = _inverse_transform_4_params(mean) if self.n_params == 4 else _inverse_transform_3_params(mean)
         print("prior means")
         print(self.prior_transformed_means)
@@ -271,9 +292,9 @@ class MCMCBase(ABC):
             acceptance rates, parameter ranges, and diagnostics.
         """
         if self.__class__.__name__ == 'MCMCBetaFixed' :
-            filename = f"mcmc_results_{self.__class__.__name__}_{config.FIXED_BETA}_prior_{self.init_method}_T{round(self.maturity*365.25)}j.html"
+            filename = f"mcmc_results_{self.__class__.__name__}_{config.FIXED_BETA}_prior_{self.init_method}_T{round(self.maturity*365.25)}j_multivaluation_dates.html"
         else :
-            filename = f"mcmc_results_{self.__class__.__name__}_prior_{self.init_method}_T{round(self.maturity*365.25)}j.html"
+            filename = f"mcmc_results_{self.__class__.__name__}_prior_{self.init_method}_T{round(self.maturity*365.25)}j_multivaluation_dates.html"
         save_results_to_html(filename, self, results)
 
     def check_parameter_bounds(self, param_value):
@@ -303,7 +324,10 @@ class MCMCBase(ABC):
         float
             Log-likelihood value.
         """
-        t_maturity, forward, market_vols, strikes = self.market_data
+        #  ponderation temporel 
+        weights = self.likelihood_weight
+
+        maturity, forward_all_valuation_dates, market_vols_all_valuation_dates, strikes_all_valuation_dates = self.market_data_multi_valuation_dates
         
         if self.n_params == 4:
             alpha, beta, rho, volvol = param_value
@@ -311,14 +335,17 @@ class MCMCBase(ABC):
             alpha, rho, volvol = param_value
             beta = config.FIXED_BETA  
 
-        sabr_vols = vol_sabr_hagan(strikes, forward, t_maturity, alpha, beta, rho, volvol)
+        likelihood = 0.0
+        for i in range(len(forward_all_valuation_dates)):
+            forward, market_vols, strikes = forward_all_valuation_dates[i], market_vols_all_valuation_dates[i], strikes_all_valuation_dates[i]
+            sabr_vols = vol_sabr_hagan(strikes, forward, maturity, alpha, beta, rho, volvol)
+            
+            valid_mask = ~np.isnan(sabr_vols)
+            residuals_squared = (market_vols[valid_mask] - sabr_vols[valid_mask])**2
         
-        valid_mask = ~np.isnan(sabr_vols)
-        residuals_squared = (market_vols[valid_mask] - sabr_vols[valid_mask])**2
-    
-        standard_likelihood = -np.sum(residuals_squared) / (2 * config.OBSERVATION_ERROR**2)
+            likelihood += weights[i] * np.sum(residuals_squared) 
 
-        return standard_likelihood
+        return - likelihood / (2 * config.OBSERVATION_ERROR**2)
         
     def compute_prior_density(self, param_value, chain_idx):
         """
